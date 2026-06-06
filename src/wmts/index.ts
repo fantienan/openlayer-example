@@ -40,6 +40,7 @@ import TileLayer from "ol/layer/Tile";
 import OLMap from "ol/Map";
 import { register } from "ol/proj/proj4";
 import WMTS, { optionsFromCapabilities } from "ol/source/WMTS";
+import XYZ from "ol/source/XYZ";
 import View from "ol/View";
 import proj4 from "proj4";
 import "ol/ol.css";
@@ -62,7 +63,7 @@ const TDT_TK = "333d6f9105e836b0b09bb84ff56a58aa";
  * 结论：写法2 更简洁且更兼容新版 PROJ，最终注册效果完全相同
  *       都产生 axisOrientation='enu'、units='degrees' 的投影
  */
-proj4.defs("EPSG:4490", "+proj=longlat +ellps=GRS80 +no_defs +type=crs");
+proj4.defs("EPSG:4490", "+proj=longlat +ellps=GRS80 +no_defs +type=crs"); // 默认 enu
 register(proj4);
 
 async function loadWmtsCapabilities(parser: WMTSCapabilities, url: string, replace?: boolean) {
@@ -122,9 +123,24 @@ async function initMap() {
     const gdLayer = gdCapabilities.Contents.Layer.find((l: any) => l.Identifier === gdParams.layer);
     const wgs84BBox = gdLayer?.WGS84BoundingBox;
 
+    const tdtImgXyzSource = new XYZ({
+      projection: "EPSG:4326",
+      url: `https://t{0-7}.tianditu.gov.cn/DataServer?T=img_c&x={x}&y={y}&l={z}&tk=${TDT_TK}`,
+    });
+
+    const tdtCiaXyzSource = new XYZ({
+      projection: "EPSG:4326",
+      url: `https://t{0-7}.tianditu.gov.cn/DataServer?T=cia_c&x={x}&y={y}&l={z}&tk=${TDT_TK}`,
+    });
+
     const map = new OLMap({
       target: "map",
-      layers: [new TileLayer({ source: tdtImgSource }), new TileLayer({ source: gdWmtsSource })],
+      layers: [
+        new TileLayer({ source: tdtImgXyzSource, visible: false }),
+        new TileLayer({ source: tdtImgSource, visible: true }),
+        new TileLayer({ source: gdWmtsSource, visible: true }),
+        new TileLayer({ source: tdtCiaXyzSource, visible: true }),
+      ],
       controls: [
         new MousePosition({
           coordinateFormat: createStringXY(6),

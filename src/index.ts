@@ -1,7 +1,6 @@
 import Bun from "bun";
 import index from "./wmts/index.html";
 
-
 const server = Bun.serve({
   routes: {
     "/wmts/*": index,
