@@ -55,8 +55,9 @@ import proj4 from "proj4";
  *       都产生 axisOrientation='enu'、units='degrees' 的投影
  */
 
-const CRS4326ENU = "4326-enu";
-const CRS3857NEU = "3857-neu";
+const CRS4326ENU = "4326_enu";
+const CRS4490NEU = "4490_neu";
+const CRS3857NEU = "3857_neu";
 const REGX_CRS_SEP = /::|:/;
 
 const CRS_AXIS_EXPECTED_X: Record<string, { value: number; axis: "enu" | "neu" }[]> = {
@@ -75,7 +76,7 @@ const CRS_AXIS_EXPECTED_X: Record<string, { value: number; axis: "enu" | "neu" }
 };
 
 const CRS_REPLACEMENT: Record<string, Record<"enu" | "neu", string>> = {
-  "4490": { enu: "4490", neu: "4326" },
+  "4490": { enu: "4490", neu: CRS4490NEU },
   "4326": { enu: CRS4326ENU, neu: "4326" },
   "3857": { enu: "3857", neu: CRS3857NEU },
 };
@@ -153,6 +154,7 @@ export class WmtsHelper {
     }
     proj4.defs("EPSG:4490", "+proj=longlat +ellps=GRS80 +no_defs +type=crs");
     proj4.defs(`EPSG:${CRS4326ENU}`, "+proj=longlat +datum=WGS84 +no_defs +type=crs");
+    proj4.defs(`EPSG:${CRS4490NEU}`, "+proj=longlat +ellps=GRS80 +axis=neu +no_defs +type=crs");
     proj4.defs(
       `EPSG:${CRS3857NEU}`,
       "+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +axis=neu +no_defs +type=crs"
