@@ -1,4 +1,29 @@
 /**
+ * === 天地图 WMTS 瓦片偏移问题总结 ===
+ * ┌─────────────────────────────────────────────────────────────────────────────┐
+ * │ ScaleDenominator 反算的分辨率与瓦片网格几何不匹配                  │
+ * ├─────────────────────────────────────────────────────────────────────────────┤
+ * │                                                                             │
+ * │ ScaleDenominator 反算出的分辨率仍与瓦片矩阵的实际切分不一致：                │
+ * │                                                                             │
+ * │   反算结果: 0.744094488...  (基于 ScaleDenominator × pixelSize / mpu)       │
+ * │   正确值:   0.703125        (基于瓦片矩阵几何: 360° / (2 × 256px))         │
+ * │                                                                             │
+ * │ 两者相差约 5.8%，远超问题二的 0.112%，是偏移的主要来源。                    │
+ * │                                                                             │
+ * │ 原因：WMTS 规范中 ScaleDenominator 与分辨率的换算依赖 DPI 和 mpu，          │
+ * │ 但天地图的实际瓦片切分是按经纬度范围等分（第1级 2列×1行，每瓦片 256px），    │
+ * │ 两套计算体系存在系统性偏差，ScaleDenominator 反算的分辨率始终偏大。          │
+ * │                                                                             │
+ * │ 解决方案：传入 initialResolution 参数，用基于瓦片矩阵几何的分辨率重建        │
+ * │ tileGrid，覆盖 optionsFromCapabilities 从 ScaleDenominator 反算的错误值。   │
+ * │                                                                             │
+ * │   天地图经纬度投影(c): initialResolution = 360 / (2 × 256) = 0.703125      │
+ * │   天地图球面墨卡托(w): initialResolution 不适用（ScaleDenominator 反算正确） │
+ * └─────────────────────────────────────────────────────────────────────────────┘
+ */
+
+/**
  * === WMTS 中 EPSG:4490 / 4326 的轴序(axis orientation)问题 ===
  *
  * 1. OGC 标准中 EPSG:4326 和 EPSG:4490 的轴序定义为 neu (纬度在前，即 lat, lon 北-东-上顺序)
@@ -36,24 +61,33 @@
 import WMTSCapabilities from "ol/format/WMTSCapabilities";
 import { register } from "ol/proj/proj4";
 import WMTS, { optionsFromCapabilities, type Options as WmtsOptions } from "ol/source/WMTS";
+import WMTSTileGrid from "ol/tilegrid/WMTS";
 import proj4 from "proj4";
 
+type InternalCreateSourceOptionsParams = {
+  capabilities: Record<string, any>;
+  layer: string;
+  matrixSet: string;
+  format?: string;
+  queryParams?: Record<string, string>;
+  initialResolution?: number;
+};
 /**
- * === proj4.defs 两种写法对比 ===
+ * === proj4.defs 的 +to_meter 参数 ===
  *
- * 写法1: proj4.defs('EPSG:4490', '+proj=longlat +ellps=GRS80 +units=degrees +to_meter=111319.49079327358 +no_defs')
- * 写法2: proj4.defs('EPSG:4490', '+proj=longlat +ellps=GRS80 +no_defs +type=crs')  ← 当前使用
+ * proj4 对 longlat 投影不会按椭球体自动计算 to_meter，to_meter 字段为 undefined。
+ * OpenLayers 的 register() 会将 proj4 的 to_meter 赋给投影的 metersPerUnit，
+ * 当 to_meter 为 undefined 时，getMetersPerUnit() 回退到 METERS_PER_UNIT['degrees']
+ * = (2 × π × 6370997) / 360 ≈ 111194.87（Normal Sphere 半径），
+ * 而 EPSG:4326 使用 (π × 6378137) / 180 ≈ 111319.49（WGS84 半长轴），
+ * 相差约 0.112%，在 WMTS 分辨率计算中导致经度方向累积偏移，
+ * 在广东（~113°E）偏移约 0.33°（~37km），表现为瓦片整体向右偏移。
  *
- * 区别：
- *   +units=degrees       写法1 显式指定单位为度；写法2 省略，proj4 对 longlat 默认即为 degrees
- *   +to_meter=111319...  写法1 显式指定度→米转换系数；写法2 省略，proj4 从 GRS80 椭球体自动计算
- *                        π × 6378137 / 180 ≈ 111319.4908，结果一致
- *   +type=crs            写法2 加上了此参数，PROJ 6+ 推荐加上，标识为坐标参考系统，
- *                        避免被误解为坐标转换管线(pipeline)；PROJ 6 以下版本会忽略此参数
- *
- * 结论：写法2 更简洁且更兼容新版 PROJ，最终注册效果完全相同
- *       都产生 axisOrientation='enu'、units='degrees' 的投影
+ * 因此必须显式指定 +to_meter 与 EPSG:4326 保持一致：
+ *   π × 6378137 / 180 ≈ 111319.49079327358
  */
+
+const METERS_PER_DEGREE = (Math.PI * 6_378_137) / 180; // ≈ 111319.49079327358，与 OL 内置 EPSG:4326 一致
 
 const CRS4326ENU = "4326_enu";
 const CRS4490NEU = "4490_neu";
@@ -158,9 +192,9 @@ export class WmtsHelper {
     if (this.registered) {
       return;
     }
-    proj4.defs("EPSG:4490", "+proj=longlat +ellps=GRS80 +no_defs +type=crs");
-    proj4.defs(`EPSG:${CRS4326ENU}`, "+proj=longlat +datum=WGS84 +no_defs +type=crs");
-    proj4.defs(`EPSG:${CRS4490NEU}`, "+proj=longlat +ellps=GRS80 +axis=neu +no_defs +type=crs");
+    proj4.defs("EPSG:4490", `+proj=longlat +ellps=GRS80 +to_meter=${METERS_PER_DEGREE} +no_defs +type=crs`);
+    proj4.defs(`EPSG:${CRS4326ENU}`, `+proj=longlat +datum=WGS84 +to_meter=${METERS_PER_DEGREE} +no_defs +type=crs`);
+    proj4.defs(`EPSG:${CRS4490NEU}`, `+proj=longlat +ellps=GRS80 +axis=neu +to_meter=${METERS_PER_DEGREE} +no_defs +type=crs`);
     proj4.defs(
       `EPSG:${CRS3857NEU}`,
       "+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +axis=neu +no_defs +type=crs"
@@ -185,29 +219,34 @@ export class WmtsHelper {
     return parseCapabilities({ axis, crs, parser: this.parser, xmlText });
   }
 
-  createWMTSSourceOptions(
-    capabilities: Record<string, any>,
-    params: { layer: string; matrixSet: string; format?: string },
-    urlParams?: Record<string, string>
-  ) {
+  createSourceOptions({ capabilities, layer, matrixSet, format, queryParams, initialResolution }: InternalCreateSourceOptionsParams) {
+    const params = { layer, matrixSet, format };
     const wmtsOptions = optionsFromCapabilities(capabilities, params) as WmtsOptions;
     if (!wmtsOptions) {
-      throw new Error(`无法从 GetCapabilities 创建 WMTS 选项, layer: ${params.layer}`);
+      throw new Error(`无法从 GetCapabilities 创建 WMTS 选项, layer: ${layer}`);
     }
-    if (urlParams) {
-      const qs = Object.entries(urlParams)
+    if (queryParams) {
+      const qs = Object.entries(queryParams)
         .map(([k, v]) => `${k}=${v}`)
         .join("&");
       wmtsOptions.urls = wmtsOptions.urls!.map((url: string) => `${url}${url.includes("?") ? "&" : "?"}${qs}`);
     }
+    if (initialResolution !== undefined && wmtsOptions.tileGrid) {
+      const levels = wmtsOptions.tileGrid.getMatrixIds().length;
+      const resolutions: number[] = [];
+      for (let z = 0; z < levels; z++) {
+        resolutions.push(initialResolution / 2 ** z);
+      }
+      wmtsOptions.tileGrid = new WMTSTileGrid({
+        origin: wmtsOptions.tileGrid.getOrigin(0),
+        resolutions,
+        matrixIds: wmtsOptions.tileGrid.getMatrixIds(),
+      });
+    }
     return wmtsOptions;
   }
 
-  createSource(
-    capabilities: Record<string, any>,
-    params: { layer: string; matrixSet: string; format?: string },
-    urlParams?: Record<string, string>
-  ) {
-    return new WMTS(this.createWMTSSourceOptions(capabilities, params, urlParams));
+  createSource(options: InternalCreateSourceOptionsParams) {
+    return new WMTS(this.createSourceOptions(options));
   }
 }

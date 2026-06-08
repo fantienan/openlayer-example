@@ -43,10 +43,22 @@ async function initMap() {
       tdiImgWParams
     );
 
-    const tdtImgSource = helper.createSource(tdtImgCapabilities, tdtImgParams, { tk: TDT_TK });
-    const tdtImgWSource = helper.createSource(tdtImgWCapabilities, tdiImgWParams, { tk: TDT_TK });
+    const tdtImgSource = helper.createSource({
+      capabilities: tdtImgCapabilities,
+      ...tdtImgParams,
+      queryParams: { tk: TDT_TK },
+      initialResolution: 0.703_125,
+    });
+    const tdtImgWSource = helper.createSource({
+      capabilities: tdtImgWCapabilities,
+      ...tdiImgWParams,
+      queryParams: { tk: TDT_TK },
+    });
 
-    const gdWmtsSource = helper.createSource(gdCapabilities, gdParams);
+    const gdWmtsSource = helper.createSource({
+      capabilities: gdCapabilities,
+      ...gdParams,
+    });
     const gdLayer = gdCapabilities.Contents.Layer.find((l: any) => l.Identifier === gdParams.layer);
     const wgs84BBox = gdLayer?.WGS84BoundingBox;
 
