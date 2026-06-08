@@ -58,6 +58,7 @@ import proj4 from "proj4";
 const CRS4326ENU = "4326_enu";
 const CRS4490NEU = "4490_neu";
 const CRS3857NEU = "3857_neu";
+const CRS900913NEU = "900913_neu";
 const REGX_CRS_SEP = /::|:/;
 
 const CRS_AXIS_EXPECTED_X: Record<string, { value: number; axis: "enu" | "neu" }[]> = {
@@ -73,12 +74,17 @@ const CRS_AXIS_EXPECTED_X: Record<string, { value: number; axis: "enu" | "neu" }
     { value: -20_037_508.342_789, axis: "enu" },
     { value: 20_037_508.342_789, axis: "neu" },
   ],
+  "900913": [
+    { value: -20_037_508.342_789, axis: "enu" },
+    { value: 20_037_508.342_789, axis: "neu" },
+  ],
 };
 
 const CRS_REPLACEMENT: Record<string, Record<"enu" | "neu", string>> = {
   "4490": { enu: "4490", neu: CRS4490NEU },
   "4326": { enu: CRS4326ENU, neu: "4326" },
   "3857": { enu: "3857", neu: CRS3857NEU },
+  "900913": { enu: "900913", neu: CRS900913NEU },
 };
 
 function replaceCrsInXml(xmlText: string, from: string, to: string) {
@@ -113,7 +119,7 @@ function inferTileMatrixSetAxis({ xmlText, matrixSet, parser }: { xmlText: strin
   const expectations = CRS_AXIS_EXPECTED_X[result.crs];
   if (expectations) {
     for (const { value, axis } of expectations) {
-      if (result.crs === "3857" ? Math.abs(x - value) < 1 : x === value) {
+      if (result.crs === "3857" || result.crs === "900913" ? Math.abs(x - value) < 1 : x === value) {
         result.axis = axis;
         break;
       }
@@ -157,6 +163,11 @@ export class WmtsHelper {
     proj4.defs(`EPSG:${CRS4490NEU}`, "+proj=longlat +ellps=GRS80 +axis=neu +no_defs +type=crs");
     proj4.defs(
       `EPSG:${CRS3857NEU}`,
+      "+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +axis=neu +no_defs +type=crs"
+    );
+
+    proj4.defs(
+      `EPSG:${CRS900913NEU}`,
       "+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +axis=neu +no_defs +type=crs"
     );
     register(proj4);

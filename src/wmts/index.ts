@@ -23,6 +23,10 @@ async function initMap() {
       layer: "img",
       matrixSet: "c",
     };
+    const tdiImgWParams = {
+      layer: "img",
+      matrixSet: "w",
+    };
 
     const gdCapabilities = await helper.loadCapabilities(
       "https://guangdong.tianditu.gov.cn/server/GDJBNTBHTB/wmts?service=WMTS&request=GetCapabilities",
@@ -34,7 +38,13 @@ async function initMap() {
       tdtImgParams
     );
 
+    const tdtImgWCapabilities = await helper.loadCapabilities(
+      `https://t0.tianditu.gov.cn/img_w/wmts?service=WMTS&request=GetCapabilities&tk=${TDT_TK}`,
+      tdiImgWParams
+    );
+
     const tdtImgSource = helper.createSource(tdtImgCapabilities, tdtImgParams, { tk: TDT_TK });
+    const tdtImgWSource = helper.createSource(tdtImgWCapabilities, tdiImgWParams, { tk: TDT_TK });
 
     const gdWmtsSource = helper.createSource(gdCapabilities, gdParams);
     const gdLayer = gdCapabilities.Contents.Layer.find((l: any) => l.Identifier === gdParams.layer);
@@ -55,6 +65,7 @@ async function initMap() {
       layers: [
         new TileLayer({ source: tdtImgXyzSource, visible: false }),
         new TileLayer({ source: tdtImgSource, visible: true }),
+        new TileLayer({ source: tdtImgWSource, visible: false }),
         new TileLayer({ source: gdWmtsSource, visible: true }),
         new TileLayer({ source: tdtCiaXyzSource, visible: true }),
       ],
