@@ -172,7 +172,7 @@ export class WmtsHelper {
     return parseCapabilities({ axis, crs, parser: this.parser, xmlText });
   }
 
-  createSource(
+  createWMTSSourceOptions(
     capabilities: Record<string, any>,
     params: { layer: string; matrixSet: string; format?: string },
     urlParams?: Record<string, string>
@@ -185,8 +185,16 @@ export class WmtsHelper {
       const qs = Object.entries(urlParams)
         .map(([k, v]) => `${k}=${v}`)
         .join("&");
-      wmtsOptions.urls = wmtsOptions.urls!.map((url: string) => `${url}&${qs}`);
+      wmtsOptions.urls = wmtsOptions.urls!.map((url: string) => `${url}${url.includes("?") ? "&" : "?"}${qs}`);
     }
-    return new WMTS(wmtsOptions);
+    return wmtsOptions;
+  }
+
+  createSource(
+    capabilities: Record<string, any>,
+    params: { layer: string; matrixSet: string; format?: string },
+    urlParams?: Record<string, string>
+  ) {
+    return new WMTS(this.createWMTSSourceOptions(capabilities, params, urlParams));
   }
 }
